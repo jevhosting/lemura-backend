@@ -1,21 +1,25 @@
 FROM node:18
 
-# instalar python y pip
-RUN apt-get update && apt-get install -y python3 python3-pip
+# instalar python, pipx y ffmpeg
+RUN apt-get update && apt-get install -y python3 python3-pip pipx ffmpeg
 
-# instalar yt-dlp
-RUN apt-get update && apt-get install -y python3 python3-pip ffmpeg && pip3 install yt-dlp
+# activar pipx
+RUN pipx ensurepath
+
+# instalar yt-dlp con pipx
+RUN pipx install yt-dlp
 
 # working directory
 WORKDIR /app
 
-# copiar archivos
+# copiar dependencias
 COPY package*.json ./
 RUN npm install
 
+# copiar todo
 COPY . .
 
-# puerto
+# puerto dinámico de Railway
 ENV PORT=3000
 
 EXPOSE 3000
