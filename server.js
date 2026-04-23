@@ -22,6 +22,8 @@ app.use((req, res, next) => {
 });
 app.use(express.json());
 
+console.log("🔥 NUEVA VERSION ACTIVA 🔥");
+
 app.get("/", (req, res) => {
   res.send("Lumora backend running 🚀");
 });
