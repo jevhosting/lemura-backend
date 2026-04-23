@@ -2,9 +2,10 @@ require("dotenv").config();
 
 const express = require("express");
 const cors = require("cors");
-const ytdlp = require("yt-dlp-exec");
 const axios = require("axios");
 const fs = require("fs");
+const { exec } = require("child_process");
+const path = require("path");
 
 const app = express();
 
@@ -19,18 +20,34 @@ app.post("/transcribe", async (req, res) => {
   try {
     const { url } = req.body;
 
-    console.log("URL recibida:", url);
-    console.log("Descargando audio...");
+    if (!url) {
+      return res.status(400).json({ error: "No URL provided" });
+    }
 
-    await ytdlp(url, {
-      extractAudio: true,
-      audioFormat: "mp3",
-      output: "audio-%(id)s.%(ext)s",
+    const videoId = new URL(url).searchParams.get("v");
+    const fileName = `audio-${videoId}.mp3`;
+    const filePath = path.join(__dirname, fileName);
+
+    console.log("URL:", url);
+    console.log("Descargando audio con yt-dlp...");
+
+    // 🔥 ejecutar yt-dlp desde el sistema
+    await new Promise((resolve, reject) => {
+      exec(
+        `yt-dlp -x --audio-format mp3 -o "${fileName}" "${url}"`,
+        (error, stdout, stderr) => {
+          if (error) {
+            console.error(stderr);
+            return reject(error);
+          }
+          resolve();
+        }
+      );
     });
 
     console.log("Descarga terminada");
 
-    const audioStream = fs.createReadStream(`audio-${url.split("v=")[1]}.mp3`);
+    const audioStream = fs.createReadStream(filePath);
 
     console.log("Subiendo a Assembly...");
 
@@ -42,13 +59,12 @@ app.post("/transcribe", async (req, res) => {
           authorization: process.env.ASSEMBLY_API_KEY,
           "content-type": "application/octet-stream",
         },
-      },
+      }
     );
 
     const audioUrl = uploadRes.data.upload_url;
 
     console.log("Audio subido:", audioUrl);
-    console.log("Solicitando transcripción...");
 
     const transcriptRes = await axios.post(
       "https://api.assemblyai.com/v2/transcript",
@@ -59,53 +75,53 @@ app.post("/transcribe", async (req, res) => {
       {
         headers: {
           authorization: process.env.ASSEMBLY_API_KEY,
-          "content-type": "application/json",
         },
-      },
+      }
     );
 
     const transcriptId = transcriptRes.data.id;
 
-    console.log("Transcript ID:", transcriptId);
-    console.log("Esperando resultado...");
+    console.log("Esperando transcripción...");
 
-    let transcriptText = "";
     let status = "queued";
+    let transcriptText = "";
 
     while (status !== "completed") {
-      await new Promise((resolve) => setTimeout(resolve, 3000));
+      await new Promise((r) => setTimeout(r, 3000));
 
-      const pollingRes = await axios.get(
+      const polling = await axios.get(
         `https://api.assemblyai.com/v2/transcript/${transcriptId}`,
         {
           headers: {
             authorization: process.env.ASSEMBLY_API_KEY,
           },
-        },
+        }
       );
 
-      status = pollingRes.data.status;
+      status = polling.data.status;
       console.log("Estado:", status);
 
       if (status === "error") {
-        throw new Error(pollingRes.data.error || "Transcription failed");
+        throw new Error(polling.data.error);
       }
 
       if (status === "completed") {
-        transcriptText = pollingRes.data.text;
+        transcriptText = polling.data.text;
       }
     }
 
-    res.json({
-      transcript: transcriptText,
-    });
+    // 🔥 opcional: borrar archivo después
+    fs.unlinkSync(filePath);
+
+    res.json({ transcript: transcriptText });
+
   } catch (error) {
-    console.error(error.response?.data || error.message);
+    console.error(error.message);
     res.status(500).json({ error: "Error en proceso" });
   }
 });
 
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
